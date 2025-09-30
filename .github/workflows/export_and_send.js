@@ -1,13 +1,11 @@
-// export_and_send.js
-import { execSync } from "node:child_process";
-import { writeFileSync, readFileSync } from "node:fs";
-import { JWT } from "google-auth-library";
+// export_and_send.js (CommonJS)
+const { execSync } = require("node:child_process");
+const { writeFileSync, readFileSync } = require("node:fs");
+const { JWT } = require("google-auth-library");
 
+// Lấy biến môi trường từ workflow
 const {
-  SA_JSON_BASE64,
-  SHEET_ID, GID, RANGE_A1,
-  SEA_URL,
-
+  SA_JSON_BASE64, SHEET_ID, GID, RANGE_A1, SEA_URL,
   PNG_NAME = "Report.png",
   PAPER_SIZE = "letter",
   PORTRAIT = "true",
@@ -18,70 +16,69 @@ const {
   SCALE_TO_PX = "1600"
 } = process.env;
 
-if (!SA_JSON_BASE64 || !SHEET_ID || !GID || !RANGE_A1 || !SEA_URL) {
-  console.error("Missing env: SA_JSON_BASE64, SHEET_ID, GID, RANGE_A1, SEA_URL");
-  process.exit(1);
-}
+function need(v, name) { if (!v) { console.error(`Missing env: ${name}`); process.exit(1); } }
+need(SA_JSON_BASE64,'SA_JSON_BASE64');
+need(SHEET_ID,'SHEET_ID');
+need(GID,'GID');
+need(RANGE_A1,'RANGE_A1');
+need(SEA_URL,'SEA_URL');
 
-// URL export PDF (được bảo vệ bởi OAuth nhưng cho phép tham số gid + range)
-const exportUrl =
-  `https://docs.google.com/spreadsheets/d/${encodeURIComponent(SHEET_ID)}/export` +
-  `?exportFormat=pdf` +
-  `&gid=${encodeURIComponent(GID)}` +
-  `&range=${encodeURIComponent(RANGE_A1)}` +
-  `&size=${PAPER_SIZE}&portrait=${PORTRAIT}&fitw=${FITW}&gridlines=${GRIDLINES}` +
-  `&fzr=FALSE&top_margin=${MARGIN_INCH}&bottom_margin=${MARGIN_INCH}` +
-  `&left_margin=${MARGIN_INCH}&right_margin=${MARGIN_INCH}`;
+(async () => {
+  try {
+    const exportUrl =
+      `https://docs.google.com/spreadsheets/d/${encodeURIComponent(SHEET_ID)}/export` +
+      `?exportFormat=pdf&gid=${encodeURIComponent(GID)}` +
+      `&range=${encodeURIComponent(RANGE_A1)}` +
+      `&size=${PAPER_SIZE}&portrait=${PORTRAIT}&fitw=${FITW}&gridlines=${GRIDLINES}` +
+      `&fzr=FALSE&top_margin=${MARGIN_INCH}&bottom_margin=${MARGIN_INCH}` +
+      `&left_margin=${MARGIN_INCH}&right_margin=${MARGIN_INCH}`;
 
-// Lấy access token từ Service Account
-const sa = JSON.parse(Buffer.from(SA_JSON_BASE64, "base64").toString("utf8"));
-const jwt = new JWT({
-  email: sa.client_email,
-  key: sa.private_key,
-  scopes: ["https://www.googleapis.com/auth/drive.readonly"],
-});
+    // Giải mã SA JSON & xin access token
+    const sa = JSON.parse(Buffer.from(SA_JSON_BASE64, "base64").toString("utf8"));
+    const jwt = new JWT({
+      email: sa.client_email,
+      key: sa.private_key,
+      scopes: ["https://www.googleapis.com/auth/drive.readonly"],
+    });
 
-// Node 20 có sẵn fetch toàn cục
-const accessToken = (await jwt.getAccessToken()).token;
-if (!accessToken) {
-  console.error("Failed to obtain access token");
-  process.exit(1);
-}
+    const token = (await jwt.getAccessToken()).token;
+    if (!token) { console.error("Failed to obtain access token"); process.exit(1); }
 
-// Tải PDF
-const pdfResp = await fetch(exportUrl, {
-  headers: { Authorization: `Bearer ${accessToken}` },
-});
-if (!pdfResp.ok) {
-  console.error("Export PDF failed:", pdfResp.status, await pdfResp.text());
-  process.exit(1);
-}
-const pdfBuf = Buffer.from(await pdfResp.arrayBuffer());
-writeFileSync("report.pdf", pdfBuf);
-console.log("PDF bytes:", pdfBuf.length);
+    console.log("Export URL:", exportUrl);
 
-// Convert PDF -> PNG (trang đầu) bằng pdftoppm
-const scale = Number(SCALE_TO_PX) || 1600;
-execSync(`pdftoppm -png -singlefile -scale-to ${scale} report.pdf report`, { stdio: "inherit" });
+    // Export PDF
+    const pdfResp = await fetch(exportUrl, { headers: { Authorization: `Bearer ${token}` }});
+    console.log("PDF export status:", pdfResp.status);
+    if (!pdfResp.ok) { console.error("Export PDF failed:", await pdfResp.text()); process.exit(1); }
 
-let png = readFileSync("report.png");
-const maxBytes = (Number(MAX_BYTES_MB) || 5) * 1024 * 1024;
-if (png.length > maxBytes) {
-  const scale2 = Math.max(800, Math.floor(scale * 0.75));
-  console.log(`PNG too big; retry with scale-to=${scale2}`);
-  execSync(`pdftoppm -png -singlefile -scale-to ${scale2} report.pdf report`, { stdio: "inherit" });
-  png = readFileSync("report.png");
-}
+    const pdfBuf = Buffer.from(await pdfResp.arrayBuffer());
+    writeFileSync("report.pdf", pdfBuf);
+    console.log("PDF bytes:", pdfBuf.length);
 
-// Gửi PNG vào SeaTalk (tag=file để có preview inline)
-const payload = {
-  tag: "file",
-  file: { filename: PNG_NAME, content: Buffer.from(png).toString("base64") }
-};
+    // Convert PDF -> PNG (pdftoppm)
+    const scale = Number(SCALE_TO_PX) || 1600;
+    execSync(`pdftoppm -png -singlefile -scale-to ${scale} report.pdf report`, { stdio: "inherit" });
 
-const sea = await fetch(SEA_URL, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload)
-});
-console.log("SeaTalk:", sea.status, await sea.text());
+    let png = readFileSync("report.png");
+    console.log("PNG bytes:", png.length);
+
+    // Nếu PNG > 5MB (SeaTalk limit) thì giảm size và convert lại
+    const maxBytes = (Number(MAX_BYTES_MB)||5) * 1024 * 1024;
+    if (png.length > maxBytes) {
+      const scale2 = Math.max(800, Math.floor(scale * 0.75));
+      console.log(`PNG too big; retry with scale-to=${scale2}`);
+      execSync(`pdftoppm -png -singlefile -scale-to ${scale2} report.pdf report`, { stdio: "inherit" });
+      png = readFileSync("report.png");
+      console.log("PNG bytes after shrink:", png.length);
+    }
+
+    // Gửi file PNG lên SeaTalk (tag: file)
+    const payload = { tag: "file", file: { filename: PNG_NAME, content: Buffer.from(png).toString("base64") } };
+    const sea = await fetch(SEA_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    console.log("SeaTalk status:", sea.status);
+    console.log("SeaTalk body:", await sea.text());
+  } catch (e) {
+    console.error(e);
+    process.exit(1);
+  }
+})();
