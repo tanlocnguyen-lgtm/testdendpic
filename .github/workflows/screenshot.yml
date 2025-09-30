@@ -1,4 +1,5 @@
 name: Sheet (private) -> PNG -> SeaTalk
+
 on:
   schedule:
     - cron: "0 1 * * *"   # 01:00 UTC ~ 08:00 VN
@@ -9,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -19,16 +21,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y poppler-utils
 
-      # Cài google-auth-library để xin access token bằng Service Account
+      # Cài gói Node cần thiết cho Service Account
       - run: npm init -y
-
-      # 🔧 Bật ESM để dùng "import ..."
-      - name: Enable ES modules
-        run: |
-          node -e "const fs=require('fs');let p=require('./package.json');p.type='module';fs.writeFileSync('package.json', JSON.stringify(p,null,2)); console.log('package.json -> type=module');"
-
       - run: npm i google-auth-library
 
+      # Debug: in danh sách file, xác nhận export_and_send.js có mặt
+      - name: Show workspace files
+        run: |
+          echo "PWD: $(pwd)"
+          ls -la
+          echo "Find export_and_send.js:"
+          find . -maxdepth 3 -type f -name 'export_and_send.js' -print
+
+      # Chạy script Node
       - name: Export PDF -> PNG -> SeaTalk
         run: node export_and_send.js
         env:
@@ -37,8 +42,6 @@ jobs:
           GID:             ${{ secrets.GID }}
           RANGE_A1:        ${{ secrets.RANGE_A1 }}
           SEA_URL:         ${{ secrets.SEA_URL }}
-
-          # Tuỳ chỉnh
           PNG_NAME:        "Report.png"
           PAPER_SIZE:      "letter"
           PORTRAIT:        "true"
