@@ -2,41 +2,45 @@ name: Sheet (private) -> PNG -> SeaTalk
 
 on:
   schedule:
-    - cron: "0 1 * * *"  # 01:00 UTC ~ 08:00 VN
-  workflow_dispatch:
+    - cron: "*/5 * * * *"   # chạy mỗi 5 phút
+  workflow_dispatch:         # vẫn cho phép bấm nút Run thủ công
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      # Checkout code
       - uses: actions/checkout@v4
 
-      # Setup Node.js
       - uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # Cài poppler để convert PDF -> PNG
       - name: Install poppler (pdftoppm)
         run: |
           sudo apt-get update
           sudo apt-get install -y poppler-utils
 
-      # Cài google-auth-library
       - run: npm init -y
       - run: npm i google-auth-library
 
-      # Debug: in ra file trong workspace để chắc chắn export_and_send.js tồn tại
       - name: Show workspace files
-        run: ls -R .
+        run: |
+          ls -la
+          find . -maxdepth 3 -type f -name 'export_and_send.js' -print
 
-      # Run script chính
       - name: Export PDF -> PNG -> SeaTalk
         run: node export_and_send.js
         env:
-          SA_JSON_BASE64: ${{ secrets.SA_JSON_BASE64 }}
-          SHEET_ID:       ${{ secrets.SHEET_ID }}
-          GID:            ${{ secrets.GID }}
-          RANGE_A1:       ${{ secrets.RANGE_A1 }}
-          SEA_URL:        ${{ secrets.SEA_URL }}
+          SA_JSON_BASE64:  ${{ secrets.SA_JSON_BASE64 }}
+          SHEET_ID:        ${{ secrets.SHEET_ID }}
+          GID:             ${{ secrets.GID }}
+          RANGE_A1:        ${{ secrets.RANGE_A1 }}
+          SEA_URL:         ${{ secrets.SEA_URL }}
+          PNG_NAME:        "Report.png"
+          PAPER_SIZE:      "letter"
+          PORTRAIT:        "true"
+          FITW:            "true"
+          GRIDLINES:       "false"
+          MARGIN_INCH:     "0.30"
+          MAX_BYTES_MB:    "5"
+          SCALE_TO_PX:     "1600"
