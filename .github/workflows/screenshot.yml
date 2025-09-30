@@ -21,6 +21,12 @@ jobs:
 
       # Cài google-auth-library để xin access token bằng Service Account
       - run: npm init -y
+
+      # 🔧 Bật ESM để dùng "import ..."
+      - name: Enable ES modules
+        run: |
+          node -e "const fs=require('fs');let p=require('./package.json');p.type='module';fs.writeFileSync('package.json', JSON.stringify(p,null,2)); console.log('package.json -> type=module');"
+
       - run: npm i google-auth-library
 
       - name: Export PDF -> PNG -> SeaTalk
@@ -32,12 +38,12 @@ jobs:
           RANGE_A1:        ${{ secrets.RANGE_A1 }}
           SEA_URL:         ${{ secrets.SEA_URL }}
 
-          # Tuỳ chỉnh (có thể giữ nguyên)
+          # Tuỳ chỉnh
           PNG_NAME:        "Report.png"
-          PAPER_SIZE:      "letter"     # letter | A4 | A5 ...
-          PORTRAIT:        "true"       # "true" hoặc "false"
-          FITW:            "true"       # fit to width
+          PAPER_SIZE:      "letter"
+          PORTRAIT:        "true"
+          FITW:            "true"
           GRIDLINES:       "false"
           MARGIN_INCH:     "0.30"
-          MAX_BYTES_MB:    "5"          # SeaTalk limit ~5MB
-          SCALE_TO_PX:     "1600"       # giảm nếu ảnh >5MB
+          MAX_BYTES_MB:    "5"
+          SCALE_TO_PX:     "1600"
