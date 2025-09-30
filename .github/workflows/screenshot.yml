@@ -1,0 +1,43 @@
+name: Sheet (private) -> PNG -> SeaTalk
+on:
+  schedule:
+    - cron: "0 1 * * *"   # 01:00 UTC ~ 08:00 VN
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Cài poppler để convert PDF -> PNG
+      - name: Install poppler (pdftoppm)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
+
+      # Cài google-auth-library để xin access token bằng Service Account
+      - run: npm init -y
+      - run: npm i google-auth-library
+
+      - name: Export PDF -> PNG -> SeaTalk
+        run: node export_and_send.js
+        env:
+          SA_JSON_BASE64:  ${{ secrets.SA_JSON_BASE64 }}
+          SHEET_ID:        ${{ secrets.SHEET_ID }}
+          GID:             ${{ secrets.GID }}
+          RANGE_A1:        ${{ secrets.RANGE_A1 }}
+          SEA_URL:         ${{ secrets.SEA_URL }}
+
+          # Tuỳ chỉnh (có thể giữ nguyên)
+          PNG_NAME:        "Report.png"
+          PAPER_SIZE:      "letter"     # letter | A4 | A5 ...
+          PORTRAIT:        "true"       # "true" hoặc "false"
+          FITW:            "true"       # fit to width
+          GRIDLINES:       "false"
+          MARGIN_INCH:     "0.30"
+          MAX_BYTES_MB:    "5"          # SeaTalk limit ~5MB
+          SCALE_TO_PX:     "1600"       # giảm nếu ảnh >5MB
