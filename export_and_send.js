@@ -11,7 +11,6 @@ const {
   PORTRAIT = "true",
   FITW = "true",
   GRIDLINES = "false",
-  MARGIN_INCH = "0.30",
   MAX_BYTES_MB = "5",
   SCALE_TO_PX = "1600"
 } = process.env;
@@ -180,15 +179,6 @@ function parseA1Range(a1) {
 
       if (!resp.ok) {
         console.error("Failed to crop temp sheet:", resp.status, await resp.text());
-        // cleanup
-        await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}:batchUpdate`,
-          {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ requests: [{ deleteSheet: { sheetId: tempSheetId } }] })
-          }
-        ).catch(()=>{});
         process.exit(1);
       }
     }
@@ -220,26 +210,45 @@ function parseA1Range(a1) {
     const pdfBuf = Buffer.from(await pdfResp.arrayBuffer());
     writeFileSync("report.pdf", pdfBuf);
 
-    // Convert PDF -> PNG
+    // 4) Convert PDF -> PNG
     const scale = Number(SCALE_TO_PX) || 1600;
     execSync(`pdftoppm -png -singlefile -scale-to ${scale} report.pdf report`, {
       stdio: "inherit"
     });
 
-    let png = readFileSync("report.png");
+    // 5) Trim whitespace using ImageMagick
+    let png;
+    try {
+      execSync(`convert report.png -fuzz 3% -trim +repage report_trim.png`, {
+        stdio: "inherit"
+      });
+      png = readFileSync("report_trim.png");
+      console.log("PNG bytes after trim:", png.length);
+    } catch (err) {
+      console.warn("Trim failed, fallback to original PNG:", err);
+      png = readFileSync("report.png");
+    }
 
-    // Shrink if too big
+    // Reduce size if too large
     const maxBytes = (Number(MAX_BYTES_MB)||5) * 1024 * 1024;
     if (png.length > maxBytes) {
       const scale2 = Math.max(800, Math.floor(scale * 0.75));
       console.log(`PNG too big; retry with scale-to=${scale2}`);
-      execSync(`pdftoppm -png -singlefile -scale-to ${scale2} report.pdf report`, {
+      execSync(`pdftoppm -png -singlefile -scale-to ${scale2} report.pdf report2`, {
         stdio: "inherit"
       });
-      png = readFileSync("report.png");
+
+      try {
+        execSync(`convert report2.png -fuzz 3% -trim +repage report_trim2.png`, {
+          stdio: "inherit"
+        });
+        png = readFileSync("report_trim2.png");
+      } catch {
+        png = readFileSync("report2.png");
+      }
     }
 
-    // Cleanup temp sheet
+    // 6) Cleanup temp sheet
     await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}:batchUpdate`,
       {
@@ -251,7 +260,7 @@ function parseA1Range(a1) {
       console.warn("Failed to delete temp sheet:", err);
     });
 
-    // Send PNG to SeaTalk
+    // 7) Send PNG to SeaTalk
     const payload = {
       tag: "file",
       file: { filename: PNG_NAME, content: Buffer.from(png).toString("base64") }
@@ -268,6 +277,3 @@ function parseA1Range(a1) {
 
   } catch (e) {
     console.error(e);
-    process.exit(1);
-  }
-})();
