@@ -25,13 +25,19 @@ need(SEA_URL,'SEA_URL');
 
 (async () => {
   try {
-    const exportUrl =
-      `https://docs.google.com/spreadsheets/d/${encodeURIComponent(SHEET_ID)}/export` +
-      `?exportFormat=pdf&gid=${encodeURIComponent(GID)}` +
-      `&range=${encodeURIComponent(RANGE_A1)}` +
-      `&size=${PAPER_SIZE}&portrait=${PORTRAIT}&fitw=${FITW}&gridlines=${GRIDLINES}` +
-      `&fzr=FALSE&top_margin=${MARGIN_INCH}&bottom_margin=${MARGIN_INCH}` +
-      `&left_margin=${MARGIN_INCH}&right_margin=${MARGIN_INCH}`;
+const exportUrl =
+  `https://docs.google.com/spreadsheets/d/${encodeURIComponent(SHEET_ID)}/export` +
+  `?format=png` +
+  `&gid=${encodeURIComponent(GID)}` +
+  `&range=${encodeURIComponent(RANGE_A1)}` +
+  `&portrait=${PORTRAIT}` +
+  `&fitw=${FITW}` +
+  `&gridlines=${GRIDLINES}` +
+  `&top_margin=0` +
+  `&bottom_margin=0` +
+  `&left_margin=0` +
+  `&right_margin=0`;
+
 
     // Giải mã SA JSON & xin access token
     const sa = JSON.parse(Buffer.from(SA_JSON_BASE64, "base64").toString("utf8"));
