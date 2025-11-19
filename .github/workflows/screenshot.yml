@@ -15,10 +15,11 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install poppler (pdftoppm)
+      # CÀI POPPLER + IMAGEMAGICK (dùng để trim ảnh)
+      - name: Install poppler (pdftoppm) + ImageMagick
         run: |
           sudo apt-get update
-          sudo apt-get install -y poppler-utils
+          sudo apt-get install -y poppler-utils imagemagick
 
       - run: npm init -y
       - run: npm i google-auth-library
@@ -41,6 +42,6 @@ jobs:
           PORTRAIT:        "true"
           FITW:            "true"
           GRIDLINES:       "false"
-          MARGIN_INCH:     "0.30"
+          MARGIN_INCH:     "0"
           MAX_BYTES_MB:    "5"
           SCALE_TO_PX:     "1600"
