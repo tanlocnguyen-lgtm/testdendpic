@@ -1,5 +1,6 @@
 // export_and_send.js (CommonJS)
-// Full version: read text from sheet, send text -> generate or read PNG -> send PNG to SeaTalk
+// Full version: read specific cells from BOT sheet, build mention-tags like Apps Script,
+// send text (with mentions) -> generate or read PNG -> send PNG to SeaTalk
 
 const { execSync } = require("node:child_process");
 const { writeFileSync, readFileSync, existsSync } = require("node:fs");
@@ -11,16 +12,16 @@ const {
   SHEET_ID,
   GID,
   RANGE_A1,
-  SEA_URL,
-  TEXT_RANGE = "BOT!A1",            // default: sheet BOT cell A1
+  SEA_URL,                     // your SeaTalk webhook (secret)
   PNG_NAME = "Report.png",
   PORTRAIT = "true",
   FITW = "true",
   GRIDLINES = "false",
   MAX_BYTES_MB = "5",
   SCALE_TO_PX = "1600",
-  USE_LOCAL_IMAGE = "0",            // set to "1" to use local file
-  LOCAL_IMAGE_PATH = "/mnt/data/55c6a28d-b9e9-4247-9079-a1808fb9dc68.png" // default local path from history
+  USE_LOCAL_IMAGE = "0",       // set to "1" to use local file
+  LOCAL_IMAGE_PATH = "/mnt/data/55c6a28d-b9e9-4247-9079-a1808fb9dc68.png", // your uploaded file path
+  TEXT_SHEET_NAME = "BOT"      // sheet name where text cells live
 } = process.env;
 
 function need(v, name) { if (!v) { console.error(`Missing env: ${name}`); process.exit(1); } }
@@ -57,6 +58,30 @@ function parseA1Range(a1) {
   };
 }
 
+// Build mention tags array exactly like Apps Script style
+const MENTION_EMAILS = [
+  "luc.nguyen@shopee.com",
+  "minh.phamnhat@shopee.com",
+  "xuanbiu.nguyen@shopee.com",
+  "hoangsang.tranvu@shopee.com",
+  "luan.nguyen@shopee.com",
+  "quan.vominh@spxexpress.com"
+  "thien.nguyenvan@shopee.com"
+  // additional mentions appended later (quang.huynh, anh.tranviet, dieu.buithuy, tanloc.nguyen)
+];
+
+const FOOTER_MENTIONS = [
+  "quang.huynh@shopee.com",
+  "anh.tranviet@shopee.com",
+  "dieu.buithuy@shopee.com",
+  "tanloc.nguyen@shopee.com"
+  "thien.nguyenvan@shopee.com"
+];
+
+function buildMentionTags(emails) {
+  return emails.map(e => `<mention-tag target="seatalk://user?email=${e}"/>`).join("");
+}
+
 (async () => {
   try {
     // --- Auth: decode SA and get access token ---
@@ -76,53 +101,97 @@ function parseA1Range(a1) {
       console.error("Failed to obtain access token");
       process.exit(1);
     }
-    console.log("Obtained access token (length):", token.length);
 
-    // --- 1) Read text from sheet (TEXT_RANGE) ---
-    let textToSend = "";
+    // --- Read specific cells from BOT sheet (A1..A15 and B1) ---
+    // We'll request BOT!A1:A15 and BOT!B1
+    const rangeA = `${TEXT_SHEET_NAME}!A1:A15`;
+    const rangeB = `${TEXT_SHEET_NAME}!B1`;
+
+    let aVals = [];
     try {
-      const vr = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(TEXT_RANGE)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (vr.ok) {
-        const j = await vr.json();
-        if (j.values && j.values.length) {
-          // flatten rows into lines
-          textToSend = j.values.map(r => r.join("\t")).join("\n");
-        }
+      const rresp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(rangeA)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (rresp.ok) {
+        const j = await rresp.json();
+        // j.values is array of arrays; map to flat list length 15 (fill with empty strings if missing)
+        aVals = (j.values || []).map(row => row[0] == null ? "" : String(row[0]));
       } else {
-        console.warn("Warning: cannot fetch TEXT_RANGE:", await vr.text());
+        console.warn("Warning: cannot fetch range", rangeA, "->", await rresp.text());
       }
     } catch (e) {
-      console.warn("Warning: error reading TEXT_RANGE:", e);
+      console.warn("Warning reading rangeA:", e);
     }
 
-    // --- 2) Send text first (if exists) ---
-    if (textToSend && textToSend.trim().length > 0) {
-      // Use same payload style as your Apps Script: { tag: "text", text: { content: ... } }
-      const textPayload = { tag: "text", text: { content: textToSend } };
-      try {
-        const tResp = await fetch(SEA_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(textPayload)
-        });
-        console.log("Sent text to SeaTalk, status:", tResp.status);
-        console.log("SeaTalk text response:", await tResp.text());
-      } catch (e) {
-        console.warn("Failed to send text to SeaTalk:", e);
+    let b1 = "";
+    try {
+      const r2 = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(rangeB)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (r2.ok) {
+        const j2 = await r2.json();
+        b1 = (j2.values && j2.values[0] && j2.values[0][0]) ? String(j2.values[0][0]) : "";
+      } else {
+        console.warn("Warning: cannot fetch range", rangeB, "->", await r2.text());
       }
-    } else {
-      console.log("No text to send (TEXT_RANGE empty).");
+    } catch (e) {
+      console.warn("Warning reading rangeB:", e);
     }
 
-    // --- 3) Prepare PNG buffer: either use local file or export from sheet ---
+    // normalize aVals to length 15 for indexing convenience
+    while (aVals.length < 15) aVals.push("");
+
+    // Map to datX like your Apps Script:
+    const dat0 = aVals[0] || "";   // A1
+    const dat1 = aVals[1] || "";   // A2
+    const dat2 = aVals[2] || "";   // A3
+    const dat3 = aVals[3] || "";   // A4
+    const dat4 = aVals[4] || "";   // A5
+    const dat5 = aVals[5] || "";   // A6
+    const dat6 = aVals[6] || "";   // A7
+    const dat7 = aVals[7] || "";   // A8
+    const dat8 = aVals[8] || "";   // A9
+    const dat9 = aVals[9] || "";   // A10
+    const dat10 = aVals[10] || ""; // A11
+    const dat12 = aVals[11] || ""; // A12
+    const dat14 = aVals[13] || ""; // A14
+    const dat15 = aVals[14] || ""; // A15
+    const dat11 = b1 || "";        // B1
+
+    // --- Build final text exactly like your Apps Script data20 ---
+    const prefixMentions = buildMentionTags(MENTION_EMAILS);
+    const footerMentions = buildMentionTags(FOOTER_MENTIONS);
+
+    // replicate spacing, bolds, newlines as original
+    let finalText = "";
+    finalText += dat11;
+    finalText += prefixMentions;
+    finalText += dat0 + "\n";
+    finalText += "**" + dat1 + "**" + "\n";
+    finalText += dat2 + "\n";
+    finalText += dat3 + "\n\n";
+    finalText += footerMentions;
+
+    // --- Send text to SeaTalk ---
+    try {
+      const textPayload = { tag: "text", text: { content: finalText } };
+      const tResp = await fetch(SEA_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(textPayload)
+      });
+      console.log("Sent text to SeaTalk, status:", tResp.status);
+      console.log("SeaTalk text response:", await tResp.text());
+    } catch (e) {
+      console.warn("Failed to send text to SeaTalk:", e);
+    }
+
+    // --- Prepare PNG buffer (local or export flow) ---
     let pngBuffer = null;
     let tempSheetId = null;
     let createdTemp = false;
 
-    if (USE_LOCAL_IMAGE === "1") {
+    if (String(USE_LOCAL_IMAGE) === "1") {
       console.log("USE_LOCAL_IMAGE=1: reading local image path:", LOCAL_IMAGE_PATH);
       if (!existsSync(LOCAL_IMAGE_PATH)) {
         console.error("Local image not found at path:", LOCAL_IMAGE_PATH);
@@ -133,9 +202,8 @@ function parseA1Range(a1) {
     } else {
       // Export flow: duplicate sheet, crop to RANGE_A1, export PDF, convert to PNG, trim
       const parsed = parseA1Range(RANGE_A1);
-      console.log("Parsed RANGE_A1:", parsed);
 
-      // 3.1 Duplicate
+      // 1) Duplicate
       const dupName = `tmp_export_${Date.now()}`;
       const dupBody = { requests: [{ duplicateSheet: { sourceSheetId: Number(GID), insertSheetIndex: 0, newSheetName: dupName } }] };
       let resp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}:batchUpdate`, {
@@ -152,9 +220,8 @@ function parseA1Range(a1) {
       const gridRows = dupData.replies[0].duplicateSheet.properties.gridProperties.rowCount;
       const gridCols = dupData.replies[0].duplicateSheet.properties.gridProperties.columnCount;
       createdTemp = true;
-      console.log("Temp sheet created id:", tempSheetId, "gridRows:", gridRows, "gridCols:", gridCols);
 
-      // 3.2 Crop via deleteDimension
+      // 2) Crop via deleteDimension
       const requests = [];
       const startIndexRow = parsed.startRow - 1;
       const endIndexRowExclusive = parsed.endRow;
@@ -182,7 +249,7 @@ function parseA1Range(a1) {
         });
         if (!resp.ok) {
           console.error("Failed to crop temp sheet:", resp.status, await resp.text());
-          // try cleanup
+          // cleanup
           await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}:batchUpdate`, {
             method: "POST",
             headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -192,9 +259,7 @@ function parseA1Range(a1) {
         }
       }
 
-      console.log("Temp sheet cropped.");
-
-      // 3.3 Export temp sheet as PDF
+      // 3) Export temp sheet as PDF
       const exportUrl =
         `https://docs.google.com/spreadsheets/d/${encodeURIComponent(SHEET_ID)}/export` +
         `?exportFormat=pdf&gid=${encodeURIComponent(tempSheetId)}` +
@@ -203,10 +268,7 @@ function parseA1Range(a1) {
         `&gridlines=${GRIDLINES}` +
         `&top_margin=0&bottom_margin=0&left_margin=0&right_margin=0`;
 
-      console.log("Export URL:", exportUrl);
-
       const pdfResp = await fetch(exportUrl, { headers: { Authorization: `Bearer ${token}` }});
-      console.log("PDF export status:", pdfResp.status);
       if (!pdfResp.ok) {
         console.error("Export PDF failed:", await pdfResp.text());
         // cleanup temp
@@ -220,13 +282,12 @@ function parseA1Range(a1) {
 
       const pdfBuf = Buffer.from(await pdfResp.arrayBuffer());
       writeFileSync("report.pdf", pdfBuf);
-      console.log("Wrote report.pdf, bytes:", pdfBuf.length);
 
-      // 3.4 Convert PDF->PNG using pdftoppm (poppler must be installed in workflow)
+      // 4) Convert PDF->PNG using pdftoppm (poppler must be installed in workflow)
       const scale = Number(SCALE_TO_PX) || 1600;
       execSync(`pdftoppm -png -singlefile -scale-to ${scale} report.pdf report`, { stdio: "inherit" });
 
-      // 3.5 Trim whitespace via ImageMagick (imagemagick must be installed)
+      // 5) Trim whitespace via ImageMagick (imagemagick must be installed)
       try {
         execSync(`convert report.png -fuzz 4% -trim +repage report_trim.png`, { stdio: "inherit" });
         pngBuffer = readFileSync("report_trim.png");
@@ -235,11 +296,10 @@ function parseA1Range(a1) {
         pngBuffer = readFileSync("report.png");
       }
 
-      // 3.6 If png too big, shrink and retry
+      // 6) If png too big, shrink and retry
       const maxBytes = (Number(MAX_BYTES_MB) || 5) * 1024 * 1024;
       if (pngBuffer.length > maxBytes) {
         const scale2 = Math.max(600, Math.floor(scale * 0.75));
-        console.log("PNG too big; retry with scale-to=", scale2);
         execSync(`pdftoppm -png -singlefile -scale-to ${scale2} report.pdf report_small`, { stdio: "inherit" });
         try {
           execSync(`convert report_small.png -fuzz 4% -trim +repage report_small_trim.png`, { stdio: "inherit" });
@@ -248,17 +308,14 @@ function parseA1Range(a1) {
           pngBuffer = readFileSync("report_small.png");
         }
       }
-
-      console.log("PNG ready, bytes:", pngBuffer.length);
     } // end export flow
 
-    // --- 4) Send PNG to SeaTalk (after text) ---
+    // --- Send PNG to SeaTalk ---
     if (!pngBuffer) {
       console.error("No PNG buffer prepared.");
       process.exit(1);
     }
 
-    // Build file payload (base64)
     const filePayload = {
       tag: "file",
       file: { filename: PNG_NAME, content: pngBuffer.toString("base64") }
@@ -273,7 +330,7 @@ function parseA1Range(a1) {
     console.log("SeaTalk file status:", fileResp.status);
     console.log("SeaTalk file response:", await fileResp.text());
 
-    // --- 5) Cleanup temp sheet if created ---
+    // --- Cleanup temp sheet if created ---
     if (createdTemp && tempSheetId) {
       await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}:batchUpdate`, {
         method: "POST",
@@ -285,7 +342,9 @@ function parseA1Range(a1) {
       console.log("Temp sheet cleanup attempted.");
     }
 
-    console.log("Done.");
+    console.log("All done.");
+    process.exit(0);
+
   } catch (e) {
     console.error("Fatal error:", e);
     process.exit(1);
