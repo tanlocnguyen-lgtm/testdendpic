@@ -65,8 +65,7 @@ const MENTION_EMAILS = [
   "xuanbiu.nguyen@shopee.com",
   "hoangsang.tranvu@shopee.com",
   "luan.nguyen@shopee.com",
-  "quan.vominh@spxexpress.com",
-  "thien.nguyenvan@shopee.com"
+  "quan.vominh@spxexpress.com"
   // additional mentions appended later (quang.huynh, anh.tranviet, dieu.buithuy, tanloc.nguyen)
 ];
 
@@ -74,8 +73,7 @@ const FOOTER_MENTIONS = [
   "quang.huynh@shopee.com",
   "anh.tranviet@shopee.com",
   "dieu.buithuy@shopee.com",
-  "tanloc.nguyen@shopee.com",
-  "thien.nguyenvan@shopee.com"
+  "tanloc.nguyen@shopee.com"
 ];
 
 function buildMentionTags(emails) {
