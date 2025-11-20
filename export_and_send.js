@@ -167,9 +167,7 @@ function buildMentionTags(emails) {
     finalText += dat11;
     finalText += prefixMentions;
     finalText += dat0 + "\n";
-    finalText += "**" + dat1 + "**" + "\n";
     finalText += dat2 + "\n";
-    finalText += dat3 + "\n\n";
     finalText += footerMentions;
 
     // --- Send text to SeaTalk ---
