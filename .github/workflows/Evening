@@ -1,0 +1,41 @@
+name: Sheet -> PNG -> SeaTalk (Evening)
+
+on:
+  schedule:
+    - cron: "0 13 * * *"    # 20h VN
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install poppler + ImageMagick
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils imagemagick
+
+      - run: npm init -y
+      - run: npm i google-auth-library
+
+      - name: Export PDF -> PNG -> SeaTalk
+        run: node export_and_send.js
+        env:
+          SA_JSON_BASE64:  ${{ secrets.SA_JSON_BASE64 }}
+          SHEET_ID:        ${{ secrets.SHEET_ID }}
+          GID:             ${{ secrets.GID }}
+          RANGE_A1:        ${{ secrets.RANGE_A1 }}
+          SEA_URL:         ${{ secrets.SEA_URL }}
+          PNG_NAME:        "Report.png"
+          PAPER_SIZE:      "letter"
+          PORTRAIT:        "true"
+          FITW:            "true"
+          GRIDLINES:       "false"
+          MARGIN_INCH:     "0"
+          MAX_BYTES_MB:    "5"
+          SCALE_TO_PX:     "1600"
